@@ -1,0 +1,157 @@
+version: "3"
+
+services:
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    command: bash -c "mvn clean install && java -jar target/myapi-0.0.1-SNAPSHOT.jar"
+    ports:
+      - "8080:8080"
+    restart: always
+    expose:
+      - 8080
+    depends_on:
+      - mysqldb
+      - es01
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysqldb:3306/myapi
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root
+      SPRING_JPA_HIBERNATE_DDL_AUTO: create-drop
+    networks:
+      - backend
+      - frontend
+    
+  mysqldb:
+    image: mysql:8.0.25
+    ports:
+      - "3306:3306"
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: myapi
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - backend
+    
+  encoder:
+    build:
+      context: ./encoder
+      dockerfile: Dockerfile
+    restart: always
+    depends_on:
+      - api
+    networks:
+      - backend
+      
+  mailer:
+    build: ./mailer
+    ports:
+      - "8082:8082"
+    volumes:
+     - .:/mailer
+    networks:
+      - backend
+      
+  postfix:
+    image: juanluisbaptiste/postfix:latest
+    expose:
+      - "25"
+    env_file:
+      - .env
+    restart: always
+    volumes:
+      - "/etc/localtime:/etc/localtime:ro"
+    networks:
+      - backend
+
+  front:
+    build: ./front
+    restart: always
+    ports:
+     - "3000:3000"
+    command: "npm run start"
+    depends_on:
+     - api
+    networks:
+     - frontend
+
+  es01:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.13.4
+    container_name: es01
+    environment:
+      - node.name=es01
+      - cluster.name=es-docker-cluster
+      - discovery.seed_hosts=es02,es03
+      - cluster.initial_master_nodes=es01,es02,es03
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - data01:/usr/share/elasticsearch/data
+    ports:
+      - 9200:9200
+    networks:
+      - elastic
+      - frontend
+
+  es02:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.13.4
+    container_name: es02
+    environment:
+      - node.name=es02
+      - cluster.name=es-docker-cluster
+      - discovery.seed_hosts=es01,es03
+      - cluster.initial_master_nodes=es01,es02,es03
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - data02:/usr/share/elasticsearch/data
+    networks:
+      - elastic
+      - frontend
+      
+  es03:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.13.4
+    container_name: es03
+    environment:
+      - node.name=es03
+      - cluster.name=es-docker-cluster
+      - discovery.seed_hosts=es01,es02
+      - cluster.initial_master_nodes=es01,es02,es03
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - data03:/usr/share/elasticsearch/data
+    networks:
+      - elastic
+      - frontend
+
+
+volumes:
+  mysql-data:
+  data01:
+    driver: local
+  data02:
+    driver: local
+  data03:
+    driver: local
+  
+networks:
+  backend:
+  frontend:
+  elastic:
+    driver: bridge
